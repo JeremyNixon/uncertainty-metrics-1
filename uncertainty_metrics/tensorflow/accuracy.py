@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2020 The Uncertainty Metrics Authors.
+# Copyright 2021 The Uncertainty Metrics Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -57,21 +57,67 @@ def _bin_probabilities(num_bins, index, dtype):
 class OracleCollaborativeAccuracy(calibration.ExpectedCalibrationError):
   """Oracle Collaborative Accuracy."""
 
-  def __init__(self, fraction=0.01, num_bins=100, name=None, dtype=None):
+  def __init__(self,
+               fraction=0.01,
+               num_bins=100,
+               binary_threshold=0.5,
+               name=None,
+               dtype=None):
     """Constructs an expected collaborative accuracy metric.
+
+    The class probabilities are computed using the argmax by default, but a
+    custom threshold can be used in the binary case. This binary threshold is
+    applied to the second (taken to be the positive) class.
 
     Args:
       fraction: the fraction of total examples to send to moderators.
       num_bins: Number of bins to maintain over the interval [0, 1].
+      binary_threshold: Threshold to use in the binary case.
       name: Name of this metric.
       dtype: Data type.
     """
-    super(OracleCollaborativeAccuracy, self).__init__(num_bins, name, dtype)
+    super(OracleCollaborativeAccuracy, self).__init__(
+        num_bins=num_bins, name=name, dtype=dtype)
     self.fraction = fraction
     self.collab_correct_sums = self.add_weight(
         "collab_correct_sums",
         shape=(num_bins,),
         initializer=tf.zeros_initializer)
+    self.binary_threshold = binary_threshold
+
+  def _compute_pred_labels(self, probs):
+    """Computes predicted labels, using binary_threshold in the binary case.
+
+    Args:
+      probs: Tensor of shape [..., k] of normalized probabilities associated
+        with each of k classes.
+
+    Returns:
+      Predicted class labels.
+    """
+    return tf.cond(
+        tf.shape(probs)[-1] == 2,
+        lambda: tf.cast(probs[:, 1] > self.binary_threshold, tf.int64),
+        lambda: tf.math.argmax(probs, axis=-1))
+
+  def _compute_pred_probs(self, probs):
+    """Computes predicted probabilities associated with the predicted labels."""
+    pred_labels = self._compute_pred_labels(probs)
+    indices = tf.stack(
+        [tf.range(tf.shape(probs)[0], dtype=tf.int64), pred_labels], axis=1)
+    return tf.gather_nd(probs, indices)
+
+  def update_state(self,
+                   labels,
+                   probabilities,
+                   custom_binning_score=None,
+                   **kwargs):
+    if self.binary_threshold != 0.5 and not custom_binning_score:
+      # Bin by distance from threshold, i.e. send to the oracle in that order.
+      custom_binning_score = tf.abs(probabilities - self.binary_threshold)
+
+    super().update_state(
+        labels, probabilities, custom_binning_score, kwargs=kwargs)
 
   def result(self):
     """Computes the expected calibration error."""
