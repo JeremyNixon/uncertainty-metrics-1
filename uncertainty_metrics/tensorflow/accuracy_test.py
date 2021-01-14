@@ -53,14 +53,45 @@ class OracleCollaborativeAccuracyTest(parameterized.TestCase, tf.test.TestCase):
     actual_bin_counts = tf.convert_to_tensor(metric.counts)
     actual_bin_correct_sums = tf.convert_to_tensor(metric.correct_sums)
     actual_bin_prob_sums = tf.convert_to_tensor(metric.prob_sums)
-    actual_bin_bin_collab_correct_sums = tf.convert_to_tensor(
-        metric.collab_correct_sums)
 
     self.assertAllEqual(bin_counts, actual_bin_counts)
     self.assertAllEqual(bin_correct_sums, actual_bin_correct_sums)
     self.assertAllClose(bin_prob_sums, actual_bin_prob_sums)
-    self.assertAllClose(bin_collab_correct_sums,
-                        actual_bin_bin_collab_correct_sums)
+
+  def testOracleCollaborativeAccuracyWithFinalOracleBinZero(self):
+    num_bins = 10
+    fraction = 0.15
+    pred_probs = np.array([0.51, 0.45, 0.39, 0.66, 0.68, 0.29, 0.81, 0.85])
+    # max_pred_probs: [0.51, 0.55, 0.61, 0.66, 0.68, 0.71, 0.81, 0.85]
+    # pred_class: [1, 0, 0, 1, 1, 0, 1, 1]
+    labels = np.array([0., 0., 0., 1., 0., 1., 1., 1.])
+    # Bins for the max predicted probabilities are (0, 0.1), [0.1, 0.2), ...,
+    # [0.9, 1) and are numbered starting at zero.
+    bin_counts = np.array([0, 0, 0, 0, 0, 2, 3, 1, 2, 0])
+    bin_correct_sums = np.array([0, 0, 0, 0, 0, 1, 2, 0, 2, 0])
+    bin_prob_sums = np.array(
+        [0, 0, 0, 0, 0, 0.51 + 0.55, 0.61 + 0.66 + 0.68, 0.71, 0.81 + 0.85, 0])
+    # `(2 - 1)` refers to the rest examples in this bin
+    # (minus the examples sent to the moderators), while `1/2` is
+    # the accuracy in this bin.
+    bin_collab_correct_sums = np.array(
+        [0, 0, 0, 0, 0, 1 * 1.0 + (2 - 1) * (1 / 2), 2, 0, 2, 0])
+
+    correct_acc = np.sum(bin_collab_correct_sums) / np.sum(bin_counts)
+
+    metric = um.OracleCollaborativeAccuracy(
+        fraction, num_bins, name='collab_acc', dtype=tf.float64)
+
+    acc1 = metric(labels, pred_probs)
+    self.assertAllClose(acc1, correct_acc)
+
+    actual_bin_counts = tf.convert_to_tensor(metric.counts)
+    actual_bin_correct_sums = tf.convert_to_tensor(metric.correct_sums)
+    actual_bin_prob_sums = tf.convert_to_tensor(metric.prob_sums)
+
+    self.assertAllEqual(bin_counts, actual_bin_counts)
+    self.assertAllEqual(bin_correct_sums, actual_bin_correct_sums)
+    self.assertAllClose(bin_prob_sums, actual_bin_prob_sums)
 
   def testOracleCollaborativeAccuracyThresholdNearHalfSameResults(self):
     """Test that thresholds 0.5 and just above 0.5 give the same results."""
@@ -120,13 +151,10 @@ class OracleCollaborativeAccuracyTest(parameterized.TestCase, tf.test.TestCase):
     actual_bin_counts = tf.convert_to_tensor(metric.counts)
     actual_bin_correct_sums = tf.convert_to_tensor(metric.correct_sums)
     actual_bin_prob_sums = tf.convert_to_tensor(metric.prob_sums)
-    actual_bin_collab_correct_sums = tf.convert_to_tensor(
-        metric.collab_correct_sums)
 
     self.assertAllEqual(bin_counts, actual_bin_counts)
     self.assertAllEqual(bin_correct_sums, actual_bin_correct_sums)
     self.assertAllClose(bin_prob_sums, actual_bin_prob_sums)
-    self.assertAllClose(bin_collab_correct_sums, actual_bin_collab_correct_sums)
 
     self.assertAllClose(acc1, correct_acc)
 
