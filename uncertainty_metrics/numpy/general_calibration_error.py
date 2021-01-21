@@ -94,6 +94,10 @@ class GeneralCalibrationError():
   TACE = GeneralCalibrationError(binning_scheme='adaptive',
   class_conditional=True, max_prob=False, error='l1', threshold=0.01)
 
+  To implement Monotonic Sweep Calibration Calibration Error [4]:
+  gce(labels, probs, binning_scheme='adaptive', class_conditional=False,
+  max_prob=True, error='l1', num_bins=None)
+
   ### References
 
   [1] Nixon, Jeremy, Michael W. Dusenberry, Linchuan Zhang, Ghassen Jerfel,
@@ -112,6 +116,10 @@ class GeneralCalibrationError():
   processing models."  Empirical Methods in Natural Language Processing. 2015.
   https://arxiv.org/pdf/1508.05154.pdf
 
+  [4] Rebecca Roelofs, Nicholas Cain, Jonathon Shlens, Michael C. Mozer
+  "Mitigating bias in calibration error estimation."
+  https://arxiv.org/pdf/2012.08668.pdf
+
   Attributes:
     binning_scheme: String, either 'even' (for even spacing) or 'adaptive'
       (for an equal number of datapoints in each bin).
@@ -124,7 +132,7 @@ class GeneralCalibrationError():
 
     norm: String, apply 'l1' or 'l2' norm to the calibration error.
 
-    num_bins: Integer, number of bins of confidence scores to use.
+    num_bins: Integer or None, number of bins of confidence scores to use. If None, use monotonic sweep method to infer number of bins to use.
 
     threshold: Float, only look at probabilities above a certain value.
 
@@ -198,8 +206,6 @@ class GeneralCalibrationError():
   def update_state(self, labels, probs):
     """Updates the value of the General Calibration Error."""
 
-    # if self.calibration_error is not None and
-
     probs = np.array(probs)
     labels = np.array(labels)
     if probs.ndim == 2:
@@ -225,10 +231,6 @@ class GeneralCalibrationError():
         raise ValueError(
             "To set datapoints_per_bin, binning_scheme must be 'adaptive'.")
 
-    if self.binning_scheme == 'even':
-      bin_upper_bounds = np.histogram_bin_edges(
-          [], bins=self.num_bins, range=(0.0, 1.0))[1:]
-
     # When class_conditional is False, different classes are conflated.
     if not self.class_conditional:
       if self.max_prob:
@@ -237,12 +239,20 @@ class GeneralCalibrationError():
         probs = probs[range(len(probs)), np.argmax(probs, axis=1)]
       labels_matrix = labels_matrix[probs > self.threshold]
       probs = probs[probs > self.threshold]
-      if self.binning_scheme == 'adaptive':
+      if self.binning_scheme == 'adaptive' and self.num_bins is not None:
         bin_upper_bounds = get_adaptive_bins(probs, self.num_bins)
+      elif self.binning_scheme == 'adaptive' and self.num_bins is None:
+        bin_upper_bounds = get_mon_sweep_bins(np.squeeze(probs), np.squeeze(labels_matrix), binning_scheme='adaptive', norm=self.norm)[1:]
+      elif self.binning_scheme == 'even' and self.num_bins is None:
+        bin_upper_bounds = get_mon_sweep_bins(np.squeeze(probs), np.squeeze(labels_matrix), binning_scheme='even', norm=self.norm)[1:]
+      elif self.binning_scheme == 'even' and self.num_bins is not None:
+        bin_upper_bounds = np.histogram_bin_edges([], bins=self.num_bins, range=(0.0, 1.0))[1:]
+      else:
+        raise NotImplementedError(f'Condition not implemented: class_conditional:{self.class_conditional}, binning_scheme:{self.binning_scheme}, num_bins:{self.num_bins}')
+
       calibration_error = self.get_calibration_error(
           probs.flatten(), labels_matrix.flatten(), bin_upper_bounds, self.norm,
           self.num_bins)
-
     # If class_conditional is true, predictions from different classes are
     # binned separately.
     else:
@@ -254,8 +264,17 @@ class GeneralCalibrationError():
           labels = labels_matrix[:, j]
           labels = labels[probs_slice > self.threshold]
           probs_slice = probs_slice[probs_slice > self.threshold]
-          if self.binning_scheme == 'adaptive':
+          if self.binning_scheme == 'adaptive' and self.num_bins is not None:
             bin_upper_bounds = get_adaptive_bins(probs_slice, self.num_bins)
+          elif self.binning_scheme == 'adaptive' and self.num_bins is None:
+            bin_upper_bounds = get_mon_sweep_bins(probs_slice, labels, binning_scheme='adaptive', norm=self.norm)[1:]
+          elif self.binning_scheme == 'even' and self.num_bins is None:
+            bin_upper_bounds = get_mon_sweep_bins(probs_slice, labels, binning_scheme='even', norm=self.norm)[1:]
+          elif self.binning_scheme == 'even' and self.num_bins is not None:
+            bin_upper_bounds = np.histogram_bin_edges([], bins=self.num_bins, range=(0.0, 1.0))[1:]
+          else:
+            raise NotImplementedError(f'Condition not implemented: class_conditional:{self.class_conditional}, binning_scheme:{self.binning_scheme}, num_bins:{self.num_bins}, max_prob:{self.max_prob}')
+   
           calibration_error = self.get_calibration_error(
               probs_slice, labels, bin_upper_bounds, self.norm, self.num_bins)
           class_calibration_error_list.append(calibration_error/num_classes)
@@ -266,8 +285,16 @@ class GeneralCalibrationError():
           probs_slice = probs[np.argmax(probs, axis=1) == j][:, j]
           labels = labels[probs_slice > self.threshold]
           probs_slice = probs_slice[probs_slice > self.threshold]
-          if self.binning_scheme == 'adaptive':
+          if self.binning_scheme == 'adaptive' and self.num_bins is not None:
             bin_upper_bounds = get_adaptive_bins(probs_slice, self.num_bins)
+          elif self.binning_scheme == 'adaptive' and self.num_bins is None:
+            bin_upper_bounds = get_mon_sweep_bins(probs_slice, labels, binning_scheme='adaptive', norm=self.norm)[1:]
+          elif self.binning_scheme == 'even' and self.num_bins is None:
+            bin_upper_bounds = get_mon_sweep_bins(probs_slice, labels, binning_scheme='even', norm=self.norm)[1:]
+          elif self.binning_scheme == 'even' and self.num_bins is not None:
+            bin_upper_bounds = np.histogram_bin_edges([], bins=self.num_bins, range=(0.0, 1.0))[1:]
+          else:
+            raise NotImplementedError(f'Condition not implemented: class_conditional:{self.class_conditional}, binning_scheme:{self.binning_scheme}, num_bins:{self.num_bins}, max_prob:{self.max_prob}')
           calibration_error = self.get_calibration_error(
               probs_slice, labels, bin_upper_bounds, self.norm, self.num_bins)
           class_calibration_error_list.append(calibration_error/num_classes)
@@ -321,6 +348,10 @@ def gce(labels,
   gce(labels, probs, binning_scheme='adaptive', class_conditional=True,
     max_prob=False, error='l1', threshold=0.01)
 
+  To implement Monotonic Sweep Calibration Calibration Error [4]:
+  gce(labels, probs, binning_scheme='adaptive', class_conditional=False,
+    max_prob=True, error='l1', num_bins=None)
+
   ### References
 
   [1] Nixon, Jeremy, Michael W. Dusenberry, Linchuan Zhang, Ghassen Jerfel,
@@ -339,6 +370,10 @@ def gce(labels,
   processing models."  Empirical Methods in Natural Language Processing. 2015.
   https://arxiv.org/pdf/1508.05154.pdf
 
+  [4] Rebecca Roelofs, Nicholas Cain, Jonathon Shlens, Michael C. Mozer
+  "Mitigating bias in calibration error estimation."
+  https://arxiv.org/pdf/2012.08668.pdf
+
   Args:
     labels: np.ndarray of shape [N, ] array of correct labels.
     probs: np.ndarray of shape [N, M] where N is the number of datapoints
@@ -350,7 +385,7 @@ def gce(labels,
     class_conditional: Boolean, 'False' for the case where predictions from
       different classes are binned together, 'True' for binned separately.
     norm: String, apply 'l1' or 'l2' norm to the calibration error.
-    num_bins: Integer, number of bins of confidence scores to use.
+    num_bins: Integer or None, number of bins of confidence scores to use. If None, use monotonic sweep method to infer number of bins to use.
     threshold: Float, only look at probabilities above a certain value.
     datapoints_per_bin: Int, number of datapoints in each adaptive bin. This
       is a second option when binning adaptively - you can use either num_bins
@@ -461,3 +496,112 @@ def compute_all_metrics(labels, probs):
                  num_bins=num_bins)
     measures.append(metric(labels, probs))
   return np.array(measures)
+
+def _calc_ece_postbin(n_bins, bins, fx, y, norm):
+  """Calculate ece_bin after bins are computed and determine monotonicity."""
+  if norm == 'l1':
+    norm_val = 1.
+  elif norm == 'l2':
+    norm_val = 2.
+  else:
+    raise NotImplementedError
+
+  ece = 0.
+  monotonic = True
+  last_ym = -1000
+  for i in range(n_bins):
+    cur = bins == i
+    if any(cur):
+      fxm = np.mean(fx[cur])
+      ym = np.mean(y[cur])
+      if ym < last_ym:  # determine if predictions are monotonic
+        monotonic = False
+      last_ym = ym
+      n = np.sum(cur)
+      ece += n * pow(np.abs(ym - fxm), norm_val)
+  return (pow(ece / fx.shape[0], 1. / norm_val)), monotonic
+
+
+def em_monotonic_sweep(probs, one_hot_labels, norm):
+  """Monotonic bin sweep using equal mass binning scheme."""
+  probs = np.squeeze(probs)
+  one_hot_labels = np.squeeze(one_hot_labels)
+  sort_ix = np.argsort(probs)
+  n_examples = probs.shape[0]
+  bin_assign = np.zeros((n_examples), dtype=int)
+
+  prev_bin_assign = np.zeros((n_examples), dtype=int)
+  for n_bins in range(2, n_examples):
+    bin_assign[sort_ix] = np.minimum(
+        n_bins - 1, np.floor(
+            (np.arange(n_examples) / n_examples) * n_bins)).astype(int)
+    _, monotonic = _calc_ece_postbin(n_bins, bin_assign, probs, one_hot_labels, norm)
+    if not monotonic:
+      return prev_bin_assign
+    prev_bin_assign = np.copy(bin_assign)
+  return bin_assign
+
+
+def ew_monotonic_sweep(probs, one_hot_labels, norm):
+  """Monotonic bin sweep using equal width binning scheme."""
+  probs = np.squeeze(probs)
+  one_hot_labels = np.squeeze(one_hot_labels)
+  n_examples = probs.shape[0]
+  bin_assign = np.zeros((n_examples), dtype=int)
+  prev_bin_assign = np.zeros((n_examples), dtype=int)
+  for n_bins in range(2, n_examples):
+    bin_assign = np.minimum(n_bins - 1, np.floor(probs * n_bins)).astype(int)
+    _, monotonic = _calc_ece_postbin(n_bins, bin_assign, probs, one_hot_labels, norm)
+    if not monotonic:
+      return prev_bin_assign
+    prev_bin_assign = np.copy(bin_assign)
+  return bin_assign
+
+def predict_top_label(fx, y):
+  """Compute confidence scores and correctness of predicted labels.
+
+  Args:
+    fx: np.ndarray of shape [N, K] for predicted confidence fx.
+    y: np.ndarray of shape [N, K] for one-hot-encoded labels.
+
+  Returns:
+    fx_top: np.ndarray of shape [N, 1] for confidence score of top label.
+    hits: np.ndarray of shape [N, 1] denoting whether or not top label
+      is a correct prediction or not.
+  """
+  picked_classes = np.argmax(fx, axis=1)
+  labels = np.argmax(y, axis=1)
+  hits = 1 * np.array(picked_classes == labels, ndmin=2).transpose()
+  fx_top = np.max(fx, axis=1, keepdims=True)
+  return fx_top, hits
+
+def get_bin_edges(bin_assign, probs):
+
+  bin_edges = []
+  for ci, bin_ind in enumerate(set(bin_assign)):
+    curr_bin_vals = np.squeeze(probs)[bin_assign == bin_ind]
+    curr_bin_min = curr_bin_vals.min()
+    curr_bin_max = curr_bin_vals.max()
+    if ci == 0:
+      bin_edges.append(curr_bin_min)
+    else:
+      bin_edges.append(curr_bin_min*.5+previous_max*.5) # pytype: disable=name-error
+    previous_max = curr_bin_max
+  bin_edges.append(curr_bin_max)
+  return bin_edges
+
+def get_mon_sweep_bins(probs, labels, binning_scheme='adaptive', norm='l1'):
+
+  assert probs.ndim == 1
+  assert labels.ndim == 1
+  probs = probs[:,None]
+  labels = labels[:,None]
+
+  if binning_scheme=='adaptive':
+    bin_assign = em_monotonic_sweep(probs, labels, norm)
+  elif binning_scheme=='even':
+    bin_assign = ew_monotonic_sweep(probs, labels, norm)
+  else:
+    raise NotImplementedError
+
+  return get_bin_edges(bin_assign, probs)
