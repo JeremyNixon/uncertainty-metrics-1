@@ -58,7 +58,9 @@ def get_adaptive_bins(predictions, num_bins):
 
   # Following the convention of numpy.digitize, we do not include the leftmost
   # edge (i.e. return the upper bin edges):
-  return edges[1:]
+  upper_bin_edges = edges[1:]
+  assert len(upper_bin_edges) == num_bins
+  return upper_bin_edges
 
 
 def binary_converter(probs):
