@@ -30,7 +30,7 @@ setup(
         'tf-nightly': ['tf-nightly',
                        'matplotlib>=2.0.0',
                        'scipy>=1.0.0',
-                       'scikit-learn>=0.20.0'
+                       'scikit-learn>=0.20.0',
                        'tensorflow>=2.0.0',
                        'tensorflow_probability>=0.9'],
         'tests': [
